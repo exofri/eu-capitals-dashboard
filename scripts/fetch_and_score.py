@@ -19,9 +19,20 @@ def fetch_weather(lat, lon):
         "daily": "temperature_2m_max,precipitation_sum,sunshine_duration",
         "timezone": "auto", "forecast_days": 7,
     }
-    resp = requests.get(url, params=params, timeout=20)
-    resp.raise_for_status()
-    daily = resp.json()["daily"]
+    last_error = None
+    for attempt in range(5):
+        try:
+            resp = requests.get(url, params=params, timeout=20)
+            resp.raise_for_status()
+            daily = resp.json()["daily"]
+            break
+        except requests.RequestException as err:
+            last_error = err
+            if attempt == 4:
+                raise
+            time.sleep(2 ** attempt)
+    else:
+        raise last_error
     avg_temp = sum(daily["temperature_2m_max"]) / len(daily["temperature_2m_max"])
     total_precip = sum(daily["precipitation_sum"])
     avg_sunshine = sum(daily["sunshine_duration"]) / len(daily["sunshine_duration"])
