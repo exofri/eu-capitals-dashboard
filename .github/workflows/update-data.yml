@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.x"
+          python-version: "3.12"
       - run: pip install requests
       - run: python scripts/fetch_and_score.py
       - name: Commit updated data
