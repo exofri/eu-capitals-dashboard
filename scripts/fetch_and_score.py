@@ -12,20 +12,31 @@ def haversine_km(lat1, lon1, lat2, lon2):
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
 
-def fetch_weather(lat, lon):
+def fetch_weather(lat, lon, retries=4, backoff=5):
+    """Retries a transient network failure (a slow TLS handshake to a free,
+    unauthenticated, heavily-shared API) instead of failing the whole run on it."""
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat, "longitude": lon,
         "daily": "temperature_2m_max,precipitation_sum,sunshine_duration",
         "timezone": "auto", "forecast_days": 7,
     }
-    resp = requests.get(url, params=params, timeout=20)
-    resp.raise_for_status()
-    daily = resp.json()["daily"]
-    avg_temp = sum(daily["temperature_2m_max"]) / len(daily["temperature_2m_max"])
-    total_precip = sum(daily["precipitation_sum"])
-    avg_sunshine = sum(daily["sunshine_duration"]) / len(daily["sunshine_duration"])
-    return avg_temp, total_precip, avg_sunshine
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, params=params, timeout=(15, 30))
+            resp.raise_for_status()
+            daily = resp.json()["daily"]
+            avg_temp = sum(daily["temperature_2m_max"]) / len(daily["temperature_2m_max"])
+            total_precip = sum(daily["precipitation_sum"])
+            avg_sunshine = sum(daily["sunshine_duration"]) / len(daily["sunshine_duration"])
+            return avg_temp, total_precip, avg_sunshine
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            print(f"  weather fetch attempt {attempt}/{retries} failed for ({lat},{lon}): {e}")
+            if attempt < retries:
+                time.sleep(backoff * attempt)
+    raise RuntimeError(f"Open-Meteo unreachable after {retries} attempts for ({lat},{lon})") from last_error
 
 def normalize(values, invert=False):
     lo, hi = min(values), max(values)
@@ -54,6 +65,7 @@ def main():
             "total_precip_mm": round(total_precip, 1),
             "avg_sunshine_s": round(avg_sunshine, 0),
         })
+        print(f"  fetched {row['capital']}")
         time.sleep(0.5)  # be polite to a free, shared API
 
     temp_scores = normalize([d["avg_max_temp"] for d in destinations])
